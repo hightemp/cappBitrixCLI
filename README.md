@@ -2,7 +2,7 @@ bitrix-cli
 ==========
 
 Usage: 
-	{$selfName} command [parameters] [flags]
+	bx command [parameters]
 
 Available commands:
 

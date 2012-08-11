@@ -8,7 +8,7 @@ function show_help()
 	global $selfName;
 exit("
 Usage: 
-	{$selfName} command [parameters] [flags]
+	{$selfName} command [parameters]
 
 Available commands:
 

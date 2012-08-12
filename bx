@@ -60,7 +60,81 @@ function bitrix_include_modules($modules=array())
 	}
 }
 
-function transliterate($text) 
+function bitrix_add_category($iblockID, $parentID=0, $data=array())
+{
+	$category = new CIBlockSection();
+	$files = array();
+
+	if (isset($data["PICTURES_BASE64"]))
+	{
+		foreach ($data["PICTURES_BASE64"] as $name => $p)
+		{
+			file_put_contents($_SERVER["DOCUMENT_ROOT"]."/upload/$name", base64_decode($p));
+			$files[] = CFile::MakeFileArray("upload/$name");
+		}
+	}
+
+	$arFields = array
+	(
+		"ACTIVE"            => "Y",
+		"IBLOCK_SECTION_ID" => $parentID,
+		"IBLOCK_ID"         => $iblockID,
+		"NAME"              => $iblockID."_".mt_rand(10e10,99e10),
+		"CODE"				=> "",
+		"SORT"              => 1,
+		"PICTURE"           => $files,
+		"DESCRIPTION"       => "",
+		"DESCRIPTION_TYPE"  => "html"
+	);
+
+	$arFields = array_merge($arFields, $data);
+
+	if ($id = $category->Add($arFields))
+		logc("Add category", "with id {$id}");
+
+	return $id;
+}
+
+function bitrix_add_product($iblockID, $parentID=0, $data=array())
+{
+	$product = new CIBlockElement();
+	$files = array();
+
+	if (isset($data["PICTURES_BASE64"]))
+	{
+		foreach ($data["PICTURES_BASE64"] as $name => $p)
+		{
+			//$filename = transliterate("$name");
+			file_put_contents($_SERVER["DOCUMENT_ROOT"]."/upload/$name", base64_decode($p));
+			$files[] = CFile::MakeFileArray("upload/$name");
+		}
+	}
+
+	$arFields = array
+	(
+		"ACTIVE"            => "Y",   
+		"IBLOCK_SECTION_ID" => $parentID, 
+		"IBLOCK_ID"         => $iblockID,
+		"PROPERTY_VALUES"   => array(),
+		"NAME"              => $iblockID."_".mt_rand(10e10,99e10),
+		"CODE"				=> "",
+		"SORT"              => 1,
+		"PREVIEW_TEXT"      => "",
+		"PREVIEW_TEXT_TYPE" => "html",
+		"DETAIL_TEXT"       => "",
+		"DETAIL_TEXT_TYPE"  => "html",
+		"DETAIL_PICTURE"    => $files
+	);
+
+	$arFields = array_merge($arFields, $data);
+
+	if ($id = $product->Add($arFields))
+		logc("Add product", "with id {$id}");
+
+	return $id;
+}						
+
+function transliterate($text, $lowercase=true) 
 {
 	static $smap, $chars, $regex, $maps;
 
@@ -143,10 +217,15 @@ function transliterate($text)
 		}
 	}
 
-	for ($i = 0; $i < strlen($chars); $i++) 
+	for ($i = 0; $i < mb_strlen($chars); $i++) 
 	{
-		$char = substr($chars, $i, 1, 'UTF-8');
+		$char = mb_substr($chars, $i, 1, 'UTF-8');
 		$text = str_replace($char, @$smap[$char], $text);
+	}
+
+	if ($lowercase)
+	{
+		$text = strtolower($text);
 	}
 
 	return $text;
@@ -524,7 +603,50 @@ EOF;
 		{
 			case "ibl":
 			case "iblock":
+				$filter = array();
+				if ($v = getarg(false)) $filter["ID"]   = $v;
+				if ($v = getarg(false)) $filter["NAME"] = $v;
+				if ($v = getarg(false)) $filter["CODE"] = $v;
 
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+				bitrix_include_modules("iblock");
+
+				$iblocks = CIBlock::GetList
+				(
+					array("SORT"=>"ASC"),
+ 					$filter,
+ 					false
+				);
+
+				while ($iblock = $iblocks->Fetch())
+				{
+					warnc("Clear iblock", "with id {$iblock['ID']}");
+
+					$rsItems = CIBlockSection::GetList
+					(
+						array(), 
+						array('IBLOCK_ID'=>$iblock["ID"])
+					);
+
+					while ($arItem = $rsItems->Fetch())
+					{
+						if (CIBlockSection::Delete($arItem['ID']))
+							logc("Remove iblock section", "with id {$arItem['ID']}");
+					}
+
+					$rsItems = CIBlockElement::GetList
+					(
+						array(), 
+						array('IBLOCK_ID'=>$iblock["ID"])
+					);
+
+					while ($arItem = $rsItems->Fetch())
+					{
+						if (CIBlockElement::Delete($arItem['ID']))
+							logc("Remove iblock element", "with id {$arItem['ID']}");
+					}
+				}
 			break;
 		}
 	break;
@@ -549,18 +671,60 @@ EOF;
 
 						require_once(BITRIX_PROLOG);
 						set_php_settings();
-						bitrix_include_modules("iblock");
+						bitrix_include_modules("iblock,catalog");
 
-						$client = new SoapClient("http://{$host}/api/v2_soap/?wsdl");
+						$proxy = new SoapClient("http://{$host}/api/v2_soap/?wsdl");
+						$proxy->startSession(); 
+						$session = $proxy->login($apiuser, $apikey);
+						$category = $proxy->catalogCategoryTree($session, $categoryID);
 
-						$session = $client->login($apiuser, $apikey);
+						function import_category($proxy, $iblockID, $parentID, $category)
+						{
+							foreach ($category->children as $item)
+							{
+								$data = array
+								(
+									"NAME"        => $item->name,
+									"CODE"        => $item->url_key,
+									"DESCRIPTION" => $item->description
+								);
 
-						$categories = $client->catalogCategoryTree($session, $categoryID);
-						$products = $client->catalogProductList($session);
+								$cid = bitrix_add_category($iblockID, $parentID, $data);
 
-						print_r($categories);
+								if (count($item->children))
+									import_category($proxy, $iblockID, $cid, $item);
 
-						$client->endSession($session);
+								$products = $proxy->catalogProductList($session, array('complex_filter' => array(
+									array
+									(
+										'key'   => 'categories',
+										'value' => array('key' => 'eq', 'value' => $cid)
+									)
+								)));
+
+								foreach ($products as $item)
+								{
+									$product = $proxy->catalogProductInfo($sessionId, $item->id);
+									$entity  = $proxy->catalogProductTierPriceEntity($sessionId, $item->id);
+
+									$data = array
+									(
+										"NAME"        => $product->name,
+										"CODE"        => $product->url_key,
+										"DESCRIPTION" => $product->description
+									);
+
+									$pid = bitrix_add_product($iblockID, $cid, $data);
+
+									CPrice::SetBasePrice($pid, $product->price, "RUB"); #TODO: Add currency import
+									CCatalogProduct::Add(array("ID" => $pid, "QUANTITY" => $entity->qty)); #TODO: Add all prices import
+								}
+							}
+						}
+
+						import_category($proxy, $iblockID, 0, $category);
+
+						$proxy->endSession($session);
 					break;
 
 					case "xls":

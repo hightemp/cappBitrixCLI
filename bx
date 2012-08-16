@@ -19,6 +19,7 @@ c[reate]
 	cmp name [alias] [description]	              # Create a component
 	cmpin template_name name                      # Create a component's template copy for the site template
 	mod name [alias] [description]	              # Create a module
+	menu name iblock
 
 r[emove]
 	page name [path]
@@ -28,6 +29,9 @@ r[emove]
 	cmpin template_name name
 	mod name
 
+g[enerate]
+	codes iblock_id [name] [code]
+
 cl[ear]
 	iblock id [name] [code]
 
@@ -35,12 +39,15 @@ i[mport]
 	products
 		magento hostname apiuser apikey category_id iblock_id
 		xls filename iblock_id
+
+backup [email] [ftp://user:pass@hostname]
 ");
 }
 
 function set_php_settings()
 {
 	ini_set('display_errors', 1);
+	ini_set('max_execution_time', 0);
 	set_time_limit(0);
 	date_default_timezone_set("Europe/Moscow");
 }
@@ -91,6 +98,8 @@ function bitrix_add_category($iblockID, $parentID=0, $data=array())
 
 	if ($id = $category->Add($arFields))
 		logc("Add category", "with id {$id}");
+	else
+		warnc("Warning", $category->LAST_ERROR);
 
 	return $id;
 }
@@ -130,6 +139,8 @@ function bitrix_add_product($iblockID, $parentID=0, $data=array())
 
 	if ($id = $product->Add($arFields))
 		logc("Add product", "with id {$id}");
+	else
+		warnc("Warning", $product->LAST_ERROR);
 
 	return $id;
 }						
@@ -203,7 +214,7 @@ function transliterate($text, $lowercase=true)
 			),
 			'special_chars' => array (
 				' ' => '_', '+' => '', '"' => '', '\'' => '', ':' => '', ';' => '', '\\' => '', '|' => '', 
-				'/' => ''
+				'/' => '', ',' => '', '.' => '', '-' => '_'
 			)
 		);
 
@@ -261,11 +272,13 @@ function diec($action, $comment)
 function logc($action, $comment)
 {
 	echo("\033[1;32m{$action}\033[0m {$comment}\n");
+	flush();
 }
 
 function warnc($action, $comment)
 {
 	echo("\033[1;33m{$action}\033[0m {$comment}\n");
+	flush();
 }
 
 function get($url, $path)
@@ -367,7 +380,7 @@ $_SERVER["SCRIPT_URL"]    = "/bx";
 $_SERVER["SCRIPT_URI"]    = "/bx";
 $DOCUMENT_ROOT            = $_SERVER["DOCUMENT_ROOT"];
 
-define("BITRIX_PROLOG", $_SERVER["DOCUMENT_ROOT"]."/bitrix/modules/main/include/prolog_before.php");
+define("BITRIX_PROLOG", $DOCUMENT_ROOT."/bitrix/modules/main/include/prolog_before.php");
 
 define("LANG", "ru"); 
 define("STOP_STATISTICS", true);
@@ -376,6 +389,8 @@ define("NOT_CHECK_PERMISSIONS", true);
 
 set_php_settings();
 
+if (!is_file(BITRIX_PROLOG))
+	diec("Bitrix not found", BITRIX_PROLOG);
 
 $command = getarg();
 
@@ -532,6 +547,37 @@ EOF;
 				));
 				if ($id) logc("Create iblock", "with id $id");
 			break;
+
+			case "menu":
+
+$MENU_TPL = <<<EOF
+<?php if (!defined("B_PROLOG_INCLUDED") || B_PROLOG_INCLUDED !== true) die();
+
+\$aMenuLinksExt = \$APPLICATION->IncludeComponent("bitrix:menu.sections", "", array(
+	"IS_SEF"      => "N",
+	"ID"          => \$_REQUEST["ID"],
+	"IBLOCK_TYPE" => "publications",
+	"IBLOCK_ID"   => "7",
+	"SECTION_URL" => "#SITE_DIR#publications/articles/",
+	"DEPTH_LEVEL" => "1"
+));
+
+\$count = count(\$aMenuLinksExt);
+for (\$i = 0; \$i < \$count; \$i++):
+	\$j = \$count-\$i-1;
+	\$aMenuLinksNew[\$i][0] = \$aMenuLinksExt[\$i][0];
+	\$aMenuLinksNew[\$i][1] = \$aMenuLinksExt[\$i][1].\$aMenuLinksExt[\$i][0]."/";
+	\$aMenuLinksNew[\$i][2] = array(\$aMenuLinksNew[\$i][1]."index.php");
+	\$aMenuLinksNew[\$i][3] = array
+	(
+		"ARTICLES" => "Y"
+	);
+	\$aMenuLinksNew[\$i][4] = "";
+endfor;
+
+\$aMenuLinks = array_merge(\$aMenuLinks, \$aMenuLinksNew);	
+EOF;
+			break;
 		}
 	break;
 
@@ -591,6 +637,74 @@ EOF;
 						logc("Remove iblock", "with id $id");
 					}
 				}
+			break;
+		}
+	break;
+
+	case "g":
+	case "generate":
+		$param = getarg();
+
+		switch ($param)
+		{
+			case "codes":
+				$filter = array();
+				if ($v = getarg(false)) $filter["ID"]   = $v;
+				if ($v = getarg(false)) $filter["NAME"] = $v;
+				if ($v = getarg(false)) $filter["CODE"] = $v;
+
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+				bitrix_include_modules("iblock");
+
+				$iblocks = CIBlock::GetList
+				(
+					array("SORT"=>"ASC"),
+					$filter,
+					false
+				);
+
+				while ($iblock = $iblocks->Fetch())
+				{
+					$rsItems = CIBlockSection::GetList
+					(
+						array(), 
+						array('IBLOCK_ID'=>$iblock["ID"])
+					);
+
+					while ($arItem = $rsItems->Fetch())
+					{
+						$ibsection = new CIBlockSection();
+						$code = transliterate($arItem["NAME"]);
+						$arFields = array
+						(
+							"CODE" => $code
+						);
+
+						if ($ibsection->Update($arItem['ID'], $arFields))
+							logc("Update iblock section", "id {$arItem['ID']} code {$code}");
+					}
+
+					$rsItems = CIBlockElement::GetList
+					(
+						array(),
+						array('IBLOCK_ID'=>$iblock["ID"])
+					);
+
+					while ($arItem = $rsItems->Fetch())
+					{
+						$ibelement = new CIBlockElement();
+						$code = transliterate($arItem["NAME"]);
+						$arFields = array
+						(
+							"CODE" => $code
+						);
+
+						if ($ibelement->Update($arItem['ID'], $arFields))
+							logc("Update iblock element", "id {$arItem['ID']} code {$code}");
+					}
+				}
+				
 			break;
 		}
 	break;
@@ -678,7 +792,7 @@ EOF;
 						$session = $proxy->login($apiuser, $apikey);
 						$category = $proxy->catalogCategoryTree($session, $categoryID);
 
-						function import_category($proxy, $iblockID, $parentID, $category)
+						function import_category($proxy, $session, $iblockID, $parentID, $category)
 						{
 							foreach ($category->children as $item)
 							{
@@ -694,35 +808,42 @@ EOF;
 								if (count($item->children))
 									import_category($proxy, $iblockID, $cid, $item);
 
-								$products = $proxy->catalogProductList($session, array('complex_filter' => array(
+								$products = $proxy->catalogProductList($session);/*, array('complex_filter' => array(
 									array
 									(
 										'key'   => 'categories',
 										'value' => array('key' => 'eq', 'value' => $cid)
 									)
-								)));
+								)));*/
 
 								foreach ($products as $item)
 								{
-									$product = $proxy->catalogProductInfo($sessionId, $item->id);
-									$entity  = $proxy->catalogProductTierPriceEntity($sessionId, $item->id);
+									try
+									{
+										$product = $proxy->catalogProductInfo($session, $item->id);
+										$entity  = $proxy->catalogProductTierPriceEntity($session, $item->id);
 
-									$data = array
-									(
-										"NAME"        => $product->name,
-										"CODE"        => $product->url_key,
-										"DESCRIPTION" => $product->description
-									);
+										$data = array
+										(
+											"NAME"        => $product->name,
+											"CODE"        => $product->url_key,
+											"DESCRIPTION" => $product->description
+										);
 
-									$pid = bitrix_add_product($iblockID, $cid, $data);
+										$pid = bitrix_add_product($iblockID, $cid, $data);
 
-									CPrice::SetBasePrice($pid, $product->price, "RUB"); #TODO: Add currency import
-									CCatalogProduct::Add(array("ID" => $pid, "QUANTITY" => $entity->qty)); #TODO: Add all prices import
+										CPrice::SetBasePrice($pid, $product->price, "RUB"); #TODO: Add currency import
+										CCatalogProduct::Add(array("ID" => $pid, "QUANTITY" => $entity->qty)); #TODO: Add all prices import
+									}
+									catch (Exception $e)
+									{
+										warnc("Warning", $e->getMessage());
+									}
 								}
 							}
 						}
 
-						import_category($proxy, $iblockID, 0, $category);
+						import_category($proxy, $session, $iblockID, 0, $category);
 
 						$proxy->endSession($session);
 					break;
@@ -732,6 +853,63 @@ EOF;
 					break;
 				}
 			break;
+		}
+
+		case "backup":
+		{
+			$options = array();
+			if ($v = getarg(false)) $options["email"] = $v;
+			if ($v = getarg(false)) $options["ftp"] = $v;
+
+			require_once(BITRIX_PROLOG);
+			set_php_settings();
+			bitrix_include_modules("iblock,catalog");
+
+			require_once("$DOCUMENT_ROOT/bitrix/modules/main/classes/general/tar_gz.php");
+
+			$tmpPath = "$DOCUMENT_ROOT/tmp";
+			$tmpUrl  = "/tmp";
+
+			if (!is_dir($tmpPath))
+				mkd($tmpPath);
+
+			$charset = defined('BX_UTF') && BX_UTF ? 'utf8' : 'cp1251';
+			$date    = date("d-m-Y");
+			$arcfile = "{$tmpPath}/{$date}.tar.gz";
+			$arcurl  = "{$tmpUrl}/{$date}.tar.gz";
+			$dbfile  = "{$tmpPath}/db_{$date}.sql";
+
+			function arch_path($arch, $path)
+			{
+				$path = rtrim($path, "/");
+
+				if (preg_match("#^{$DOCUMENT_ROOT}(/bitrix/([^/]*cache|backup)|/tmp)#", $path))
+					return;
+
+				$arch->add($path, '', $DOCUMENT_ROOT);
+				logc("Add to archive", $path);
+
+				if (is_dir($path))
+				{
+					foreach (glob($path."/*") as $file)
+					{
+						arch_path($arch, $file);
+					}
+				}
+			}
+
+			shell_exec("mysqldump -h{$DBHost} -u{$DBLogin} -p{$DBPassword} --default-character-set={$charset} {$DBName} > {$dbfile}");
+			logc("Make db dump", $dbfile);
+
+			$arch = new CArchiver($arcfile, true);
+			$arch->add($dbfile, '', $DOCUMENT_ROOT);
+			logc("Add to archive", $dbfile);
+			arch_path($arch, $DOCUMENT_ROOT);
+			$arch->close();
+
+			unlink($dbfile);
+
+			logc("Link", $arcurl);
 		}
 	break;
 

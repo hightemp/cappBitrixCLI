@@ -18,7 +18,7 @@ c[reate]
 	ibl name iblock_type [code]                   # Create a iblock
 	cmp name [alias] [description]	              # Create a component
 	cmpin template_name name                      # Create a component's template copy for the site template
-	mod name [alias] [description]	              # Create a module
+	mdl name [alias] [description]	              # Create a module
 	menu name iblock
 
 r[emove]
@@ -27,7 +27,7 @@ r[emove]
 	ibl id [name] [code]
 	cmp name
 	cmpin template_name name
-	mod name
+	mdl name
 
 g[enerate]
 	codes iblock_id [name] [code]
@@ -35,10 +35,22 @@ g[enerate]
 cl[ear]
 	iblock id [name] [code]
 
+l[ist]
+	cmp
+	mdl
+	tpl
+
+m[odule]
+	install modules
+	unintall modules
+
 i[mport]
 	products
 		magento hostname apiuser apikey category_id iblock_id
 		xls filename iblock_id
+
+t[ools]
+	pqt # products quantity trace
 
 backup [email] [ftp://user:pass@hostname]
 ");
@@ -379,6 +391,7 @@ $_SERVER["DOCUMENT_URI"]  = "/bx";
 $_SERVER["SCRIPT_URL"]    = "/bx";
 $_SERVER["SCRIPT_URI"]    = "/bx";
 $DOCUMENT_ROOT            = $_SERVER["DOCUMENT_ROOT"];
+$BITRIX_DIR               = "{$DOCUMENT_ROOT}/bitrix";
 
 define("BITRIX_PROLOG", $DOCUMENT_ROOT."/bitrix/modules/main/include/prolog_before.php");
 
@@ -765,6 +778,98 @@ EOF;
 		}
 	break;
 
+	case "l":
+	case "list":
+		$param = getarg();
+
+		switch ($param)
+		{
+			case "tpl":
+			case "templates":
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+
+				foreach (glob("{$BITRIX_DIR}/templates/*") as $template)
+				{
+					$description = "{$template}/description.php";
+					if (is_file($description))
+					{
+						include($description);
+						printf("%30s %30s %-150s\n", basename($template), $arTemplate["NAME"], $arTemplate["DESCRIPTION"]);
+					}
+				}
+			break;
+
+			case "mdl":
+			case "modules":
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+					
+				function getSubclasses($parentClassName)
+				{
+					$classes = array();
+					foreach (get_declared_classes() as $className)
+					{
+						if (is_subclass_of($className, $parentClassName))
+							$classes[] = $className;
+					}
+
+					return $classes;
+				}
+
+				foreach (glob("{$BITRIX_DIR}/modules/*") as $module)
+				{
+					$install = "{$module}/install/index.php";
+					if (is_file($install))
+					{
+						include($install);
+					}
+				}
+
+				foreach (getSubclasses("CModule") as $class)
+				{
+					$module = new $class();
+					printf("%30s  %8s  %30s  %-150s\n", $class, $module->MODULE_VERSION, $module->MODULE_NAME, $module->MODULE_DESCRIPTION);
+				}
+			break;
+
+			case "cmp":
+			case "components":
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+
+				define("B_PROLOG_INCLUDED", true);
+
+				echo "Additional:\n";
+				foreach (glob("{$BITRIX_DIR}/components/additional/*") as $component)
+				{
+					$description      = "{$component}/.description.php";
+					$lang_description = "{$component}/lang/en/.description.php";
+					if (is_file($description))
+					{
+						include($lang_description);
+						include($description);
+						printf("%40s  %50s  %-80s\n", basename($component), $arComponentDescription["NAME"], $arComponentDescription["DESCRIPTION"]);
+					}
+				}
+
+				echo "Bitrix:\n";
+				foreach (glob("{$BITRIX_DIR}/components/bitrix/*") as $component)
+				{
+					$description      = "{$component}/.description.php";
+					$lang_description = "{$component}/lang/en/.description.php";
+					if (is_file($description))
+					{
+						include($lang_description);
+						include($description);
+						printf("%40s  %50s  %-80s\n", basename($component), $arComponentDescription["NAME"], $arComponentDescription["DESCRIPTION"]);
+					}
+				}
+
+			break;
+		}
+	break;
+
 	case "i":
 	case "import":
 		$param = getarg();
@@ -855,6 +960,27 @@ EOF;
 			break;
 		}
 
+		case "t":
+		case "tools":
+		{
+			$param = getarg();
+
+			switch ($param)
+			{
+				case "pqt":
+					require_once(BITRIX_PROLOG);			
+					set_php_settings();
+
+					$result = $DB->Query("UPDATE `b_catalog_product` SET QUANTITY_TRACE = 'Y'"); 
+
+					if ($result)
+						logc("Update products", "OK");
+					else
+						diec("Update products", "Error");
+				break;
+			}
+		}
+
 		case "backup":
 		{
 			$options = array();
@@ -865,7 +991,7 @@ EOF;
 			set_php_settings();
 			bitrix_include_modules("iblock,catalog");
 
-			require_once("$DOCUMENT_ROOT/bitrix/modules/main/classes/general/tar_gz.php");
+			require_once("{$BITRIX_DIR}/modules/main/classes/general/tar_gz.php");
 
 			$tmpPath = "$DOCUMENT_ROOT/tmp";
 			$tmpUrl  = "/tmp";
@@ -886,7 +1012,7 @@ EOF;
 				if (preg_match("#^{$DOCUMENT_ROOT}(/bitrix/([^/]*cache|backup)|/tmp)#", $path))
 					return;
 
-				$arch->add($path, '', $DOCUMENT_ROOT);
+				//$arch->add($path, '', $DOCUMENT_ROOT);
 				logc("Add to archive", $path);
 
 				if (is_dir($path))
@@ -898,16 +1024,14 @@ EOF;
 				}
 			}
 
+			$arch = new CArchiver($arcfile, true);
 			shell_exec("mysqldump -h{$DBHost} -u{$DBLogin} -p{$DBPassword} --default-character-set={$charset} {$DBName} > {$dbfile}");
 			logc("Make db dump", $dbfile);
-
-			$arch = new CArchiver($arcfile, true);
 			$arch->add($dbfile, '', $DOCUMENT_ROOT);
 			logc("Add to archive", $dbfile);
-			arch_path($arch, $DOCUMENT_ROOT);
-			$arch->close();
-
 			unlink($dbfile);
+			arch_path($arch, $DOCUMENT_ROOT);
+			//$arch->close();
 
 			logc("Link", $arcurl);
 		}

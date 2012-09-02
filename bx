@@ -17,7 +17,7 @@ c[reate]
 	tpl name [alias] [description] [components..] # Create a template using components
 	ibl name iblock_type [code]                   # Create a iblock
 	cmp name [alias] [description]	              # Create a component
-	cmpin template_name name                      # Create a component's template copy for the site template
+	tplcmp template name                          # Create a component's template copy for the site template
 	mdl name [alias] [description]	              # Create a module
 	menu name iblock
 
@@ -26,7 +26,7 @@ r[emove]
 	tpl name
 	ibl id [name] [code]
 	cmp name
-	cmpin template_name name
+	cmpin template name
 	mdl name
 
 g[enerate]
@@ -39,6 +39,7 @@ l[ist]
 	cmp
 	mdl
 	tpl
+	tplcmp template
 
 m[odule]
 	install modules
@@ -51,6 +52,10 @@ i[mport]
 
 t[ools]
 	pqt # products quantity trace
+
+w[atcher]
+	start template
+	stop template
 
 backup [email] [ftp://user:pass@hostname]
 ");
@@ -342,18 +347,18 @@ function cp_r($source, $destination, $rewrite=false)
 {
 	if (is_file($destination) && $rewrite)
 		@unlink($destination);
+
+	$dest = $destination."/".basename($source);
+
 	if (is_dir($source))
 	{
-		mkd($destination);
+		mkd($dest);
 		foreach (glob($source.'/*') as $file)
-		{
-			if ($file != "." && $file != "..")
-				cp_r("$source/$file", "$destination/$file"); 
-		}
+			cp_r($file, $dest); 
 	}
 	else
 		if (is_file($source))
-			cp($source, $destination);
+			cp($source, $dest);
 }
 
 function cp($source, $destination)
@@ -590,6 +595,26 @@ endfor;
 
 \$aMenuLinks = array_merge(\$aMenuLinks, \$aMenuLinksNew);	
 EOF;
+			break;
+
+			case "tplcmp":
+				$tplname = getarg();
+				$name    = strtolower(getarg());
+
+				$acDir    = "{$BITRIX_DIR}/components/additional/{$name}/templates/.default";
+				$bcDir    = "{$BITRIX_DIR}/components/bitrix/{$name}/templates/.default";
+				$acTplDir = "{$BITRIX_DIR}/templates/{$tplname}/components/additional/{$name}";
+				$bcTplDir = "{$BITRIX_DIR}/templates/{$tplname}/components/bitrix/{$name}";
+
+				if (is_dir($acDir))
+				{
+					cp_r($acDir, $acTplDir, true);
+				}
+
+				if (is_dir($bcDir))
+				{
+					cp_r($bcDir, $bcTplDir, true);
+				}
 			break;
 		}
 	break;
@@ -867,6 +892,31 @@ EOF;
 				}
 
 			break;
+
+			case "tplcmp":
+				$tplname = getarg();
+
+				$acTplDir = "{$BITRIX_DIR}/templates/{$tplname}/components/additional/*";
+				$bcTplDir = "{$BITRIX_DIR}/templates/{$tplname}/components/bitrix/*";
+
+				foreach (glob($acTplDir) as $template)
+				{
+					printf("%40s\n", basename($template));
+					foreach (glob("$template/*") as $name)
+					{
+						printf("%80s\n", basename($name));
+					}
+				}				
+
+				foreach (glob($bcTplDir) as $template)
+				{
+					printf("%40s\n", basename($template));
+					foreach (glob("$template/*") as $name)
+					{
+						printf("%39s├─ %-40s\n", "", basename($name));
+					}
+				}				
+			break;
 		}
 	break;
 
@@ -959,82 +1009,98 @@ EOF;
 				}
 			break;
 		}
+	break;
 
-		case "t":
-		case "tools":
+	case "t":
+	case "tools":
+		$param = getarg();
+
+		switch ($param)
 		{
-			$param = getarg();
+			case "pqt":
+				require_once(BITRIX_PROLOG);			
+				set_php_settings();
 
-			switch ($param)
-			{
-				case "pqt":
-					require_once(BITRIX_PROLOG);			
-					set_php_settings();
+				$result = $DB->Query("UPDATE `b_catalog_product` SET QUANTITY_TRACE = 'Y'"); 
 
-					$result = $DB->Query("UPDATE `b_catalog_product` SET QUANTITY_TRACE = 'Y'"); 
-
-					if ($result)
-						logc("Update products", "OK");
-					else
-						diec("Update products", "Error");
-				break;
-			}
+				if ($result)
+					logc("Update products", "OK");
+				else
+					diec("Update products", "Error");
+			break;
 		}
+	break;
 
-		case "backup":
+	case "w":
+	case "watcher":
+		$param = getarg();
+
+		switch ($param)
 		{
-			$options = array();
-			if ($v = getarg(false)) $options["email"] = $v;
-			if ($v = getarg(false)) $options["ftp"] = $v;
+			case "start":
+				$template = getarg();
+				shell_exec("cd {$BITRIX_DIR}/templates/{$template}/ && watcher start");
+			break;
 
-			require_once(BITRIX_PROLOG);
-			set_php_settings();
-			bitrix_include_modules("iblock,catalog");
+			case "stop":
+				$template = getarg();
+				shell_exec("cd {$BITRIX_DIR}/templates/{$template}/ && watcher stop");
+			break;
+		}
+	break;
 
-			require_once("{$BITRIX_DIR}/modules/main/classes/general/tar_gz.php");
+	case "backup":
+		$options = array();
+		if ($v = getarg(false)) $options["email"] = $v;
+		if ($v = getarg(false)) $options["ftp"] = $v;
 
-			$tmpPath = "$DOCUMENT_ROOT/tmp";
-			$tmpUrl  = "/tmp";
+		require_once(BITRIX_PROLOG);
+		set_php_settings();
+		bitrix_include_modules("iblock,catalog");
 
-			if (!is_dir($tmpPath))
-				mkd($tmpPath);
+		require_once("{$BITRIX_DIR}/modules/main/classes/general/tar_gz.php");
 
-			$charset = defined('BX_UTF') && BX_UTF ? 'utf8' : 'cp1251';
-			$date    = date("d-m-Y");
-			$arcfile = "{$tmpPath}/{$date}.tar.gz";
-			$arcurl  = "{$tmpUrl}/{$date}.tar.gz";
-			$dbfile  = "{$tmpPath}/db_{$date}.sql";
+		$tmpPath = "$DOCUMENT_ROOT/tmp";
+		$tmpUrl  = "/tmp";
 
-			function arch_path($arch, $path)
+		if (!is_dir($tmpPath))
+			mkd($tmpPath);
+
+		$charset = defined('BX_UTF') && BX_UTF ? 'utf8' : 'cp1251';
+		$date    = date("d-m-Y");
+		$arcfile = "{$tmpPath}/{$date}.tar.gz";
+		$arcurl  = "{$tmpUrl}/{$date}.tar.gz";
+		$dbfile  = "{$tmpPath}/db_{$date}.sql";
+
+		function arch_path($arch, $path)
+		{
+			$path = rtrim($path, "/");
+
+			if (preg_match("#^{$DOCUMENT_ROOT}(/bitrix/([^/]*cache|backup)|/tmp)#", $path))
+				return;
+
+			//$arch->add($path, '', $DOCUMENT_ROOT);
+			logc("Add to archive", $path);
+
+			if (is_dir($path))
 			{
-				$path = rtrim($path, "/");
-
-				if (preg_match("#^{$DOCUMENT_ROOT}(/bitrix/([^/]*cache|backup)|/tmp)#", $path))
-					return;
-
-				//$arch->add($path, '', $DOCUMENT_ROOT);
-				logc("Add to archive", $path);
-
-				if (is_dir($path))
+				foreach (glob($path."/*") as $file)
 				{
-					foreach (glob($path."/*") as $file)
-					{
-						arch_path($arch, $file);
-					}
+					arch_path($arch, $file);
 				}
 			}
-
-			$arch = new CArchiver($arcfile, true);
-			shell_exec("mysqldump -h{$DBHost} -u{$DBLogin} -p{$DBPassword} --default-character-set={$charset} {$DBName} > {$dbfile}");
-			logc("Make db dump", $dbfile);
-			$arch->add($dbfile, '', $DOCUMENT_ROOT);
-			logc("Add to archive", $dbfile);
-			unlink($dbfile);
-			arch_path($arch, $DOCUMENT_ROOT);
-			//$arch->close();
-
-			logc("Link", $arcurl);
 		}
+
+		$arch = new CArchiver($arcfile, true);
+		shell_exec("mysqldump -h{$DBHost} -u{$DBLogin} -p{$DBPassword} --default-character-set={$charset} {$DBName} > {$dbfile}");
+		logc("Make db dump", $dbfile);
+		$arch->add($dbfile, '', $DOCUMENT_ROOT);
+		logc("Add to archive", $dbfile);
+		unlink($dbfile);
+		arch_path($arch, $DOCUMENT_ROOT);
+		//$arch->close();
+
+		logc("Link", $arcurl);
 	break;
 
 	default:

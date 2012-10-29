@@ -1,63 +1,72 @@
 #!/usr/bin/env php
 <?php
 
-$selfName = array_shift($argv);
+array_shift($argv);
 
 function show_help()
 {
-	global $selfName;
 exit("
 Usage: 
-	{$selfName} command [parameters]
+	bx command [parameters]
 
 Available commands:
 
-c[reate]
-	page name [alias] [path] [components..]       # Create a bitrix php page
-	tpl name [alias] [description] [components..] # Create a template using components
-	ibl name iblock_type [code]                   # Create a iblock
-	cmp name [alias] [description]	              # Create a component
-	tplcmp template name                          # Create a component's template copy for the site template
-	mdl name [alias] [description]	              # Create a module
-	menu name iblock
+	c, [create]
+		page NAME [ALIAS PATH COMPONENTS..]           # Create a bitrix php page
+		tpl TEMPLATE [ALIAS DESCRIPTION COMPONENTS..] # Create a template using components
+		ibl IBLOCK IBLOCK_TYPE [CODE]                 # Create a iblock
+		cmp COMPONENT [ALIAS DESCRIPTION]	          # Create a component
+		tplcmp TEMPLATE COMPONENT                     # Create a component's template copy for the site template
+		mdl MODULE [ALIAS DESCRIPTION]	              # Create a module
+		menu NAME IBLOCK
 
-r[emove]
-	page name [path]
-	tpl name
-	ibl id [name] [code]
-	cmp name
-	cmpin template name
-	mdl name
+	r, [remove]
+		page NAME [PATH]
+		tpl TEMPLATE
+		ibl ID [NAME CODE]
+		cmp COMPONENT
+		cmpin TEMPLATE COMPONENT
+		mdl MODULE
 
-g[enerate]
-	codes iblock_id [name] [code]
+	g, [generate]
+		codes IBLOCK_ID [NAME CODE]
+		tplcmp TEMPLATE
 
-cl[ear]
-	iblock id [name] [code]
+	cl, [clear]
+		iblock ID [NAME CODE]
 
-l[ist]
-	cmp
-	mdl
-	tpl
-	tplcmp template
+	l, [list]
+		cmp
+		mdl
+		tpl
+		tplcmp TEMPLATE
 
-m[odule]
-	install modules
-	unintall modules
+	m, [module]
+		install MODULES
+		unintall MODULES
 
-i[mport]
-	products
-		magento hostname apiuser apikey category_id iblock_id
-		xls filename iblock_id
+	i, [import]
+		products
+			magento HOSTNAME APIUSER APIKEY CATEGORY_ID IBLOCK_ID
+			xls FILENAME IBLOCK_ID
 
-t[ools]
-	pqt # products quantity trace
+	t, [tools]
+		pqt                              # Products quantity trace
+		tm                               # Test mail
+		oct LOGIN PASSWORD               # Optimize and check all tables
+		bmysql LOGIN PASSWORD HOST ITERS # Make a benchmark for mysql
 
-w[atcher]
-	start template
-	stop template
+	mysql
+		drop table TABLE
+		drop database DATABASE
+		truncate table TABLE
+		truncate database DATABASE
 
-backup [email] [ftp://user:pass@hostname]
+	w, [watcher]
+		start TEMPLATE
+		stop TEMPLATE
+
+	backup [EMAIL FTP_URL]
 ");
 }
 
@@ -259,6 +268,12 @@ function transliterate($text, $lowercase=true)
 	return $text;
 }
 
+function timestamp()
+{
+	$startarray = explode(" ", microtime());
+	return $startarray[1] + $startarray[0];
+}
+
 function getarg($default=null)
 {
 	global $argv;
@@ -283,17 +298,26 @@ function getarg($default=null)
 
 function diec($action, $comment)
 {
+	$args = func_get_args();
+	array_shift($args);
+	$comment = join(" ", $args);
 	die("\033[1;31m{$action}\033[0m {$comment}\n");
 }
 
 function logc($action, $comment)
 {
+	$args = func_get_args();
+	array_shift($args);
+	$comment = join(" ", $args);
 	echo("\033[1;32m{$action}\033[0m {$comment}\n");
 	flush();
 }
 
 function warnc($action, $comment)
 {
+	$args = func_get_args();
+	array_shift($args);
+	$comment = join(" ", $args);
 	echo("\033[1;33m{$action}\033[0m {$comment}\n");
 	flush();
 }
@@ -321,50 +345,111 @@ function get($url, $path)
 
 function putf($file, $data)
 {
+	global $DOCUMENT_ROOT;
+	
 	if (@file_put_contents($file, $data)) 
+	{
+		$file = str_ireplace("$DOCUMENT_ROOT/", "", $file);
 		logc("Create file", $file);
+	}
 }
 
 function mkd($path)
 {
-	if (@mkdir($path, 0755)) 
+	global $DOCUMENT_ROOT;
+
+	if (@mkdir($path, 0755, true)) 
+	{
+		$path = str_ireplace("$DOCUMENT_ROOT/", "", $path);
 		logc("Create directory", $path);
+	}
+	else
+	{
+		$path = str_ireplace("$DOCUMENT_ROOT/", "", $path);
+		warnc("Can't create directory", $path);
+	}
 }
 
 function rm_rf($dir)
 {
+	global $DOCUMENT_ROOT;
+	
     foreach (glob($dir.'/*') as $file) 
     {
         if (is_dir($file))
             rm_rf($file);
-        else if (@unlink($file)) 
-        	logc("Remove file",$file);
+        else if (@unlink($file))
+        {
+			$file = str_ireplace("$DOCUMENT_ROOT/", "", $file);
+        	logc("Remove file", $file);
+        }
     }
-    if (@rmdir($dir)) logc("Remove directory", $dir);
+    if (@rmdir($dir))
+    {
+		$dir = str_ireplace("$DOCUMENT_ROOT/", "", $dir);
+    	logc("Remove directory", $dir);
+    }
 }
 
-function cp_r($source, $destination, $rewrite=false)
+function cp_r($source, $destination, $rewrite=false, $only_subs=false)
 {
 	if (is_file($destination) && $rewrite)
 		@unlink($destination);
-
-	$dest = $destination."/".basename($source);
+	
+	if (!$only_subs)
+		$destination = $destination."/".basename($source);
 
 	if (is_dir($source))
 	{
-		mkd($dest);
+		mkd($destination);
 		foreach (glob($source.'/*') as $file)
-			cp_r($file, $dest); 
+			cp_r($file, $destination, $rewrite); 
 	}
 	else
 		if (is_file($source))
-			cp($source, $dest);
+			cp($source, $destination);
 }
 
 function cp($source, $destination)
 {
-	if (@copy($source, $destination)) 
+	global $DOCUMENT_ROOT;
+	
+	if (@copy($source, $destination))
+	{
+		$source = str_ireplace("$DOCUMENT_ROOT/", "", $source);
+		$destination = str_ireplace("$DOCUMENT_ROOT/", "", $destination);
 		logc("Copy", "from {$source} to {$destination}");
+	}
+}
+
+function find_php($dir, $exclude_bitrix=false)
+{
+	global $BITRIX_DIR;
+
+	$results = array();
+	$dir = trim($dir);
+
+	if (empty($dir))
+		return $results;
+
+	$rdi = new RecursiveDirectoryIterator($dir);
+	foreach (new RecursiveIteratorIterator($rdi) as $file)
+	{
+		$fullname = $file->getRealPath();
+
+		if ($exclude_bitrix)
+		{
+			if (preg_match("#{$BITRIX_DIR}#i", $fullname))
+				continue;
+		}
+
+		if (preg_match("#\.php$#i", $fullname))
+		{
+			$results[] = $fullname;
+		}
+	}
+
+	return $results;
 }
 
 function get_components($arr)
@@ -388,13 +473,12 @@ EOF;
 	return $result;
 }
 
-
-$_SERVER["DOCUMENT_ROOT"] = dirname(__FILE__);
+$_SERVER["DOCUMENT_ROOT"] = getcwd();
 $_SERVER["SCRIPT_NAME"]   = "/bx";
-$_SERVER["REQUEST_URI"]   = "/bx";
-$_SERVER["DOCUMENT_URI"]  = "/bx";
-$_SERVER["SCRIPT_URL"]    = "/bx";
-$_SERVER["SCRIPT_URI"]    = "/bx";
+$_SERVER["REQUEST_URI"]   = $_SERVER["SCRIPT_NAME"];
+$_SERVER["DOCUMENT_URI"]  = $_SERVER["SCRIPT_NAME"];
+$_SERVER["SCRIPT_URL"]    = $_SERVER["SCRIPT_NAME"];
+$_SERVER["SCRIPT_URI"]    = $_SERVER["SCRIPT_NAME"];
 $DOCUMENT_ROOT            = $_SERVER["DOCUMENT_ROOT"];
 $BITRIX_DIR               = "{$DOCUMENT_ROOT}/bitrix";
 
@@ -608,11 +692,13 @@ EOF;
 
 				if (is_dir($acDir))
 				{
+					mkd($acTplDir);
 					cp_r($acDir, $acTplDir, true);
 				}
 
 				if (is_dir($bcDir))
 				{
+					mkd($bcTplDir);
 					cp_r($bcDir, $bcTplDir, true);
 				}
 			break;
@@ -743,6 +829,61 @@ EOF;
 					}
 				}
 				
+			break;
+
+			case "tplcmp":
+				$template = getarg();
+
+				require_once(BITRIX_PROLOG);
+				set_php_settings();
+
+				function create_tmpcmp($tplname, $cmpname, $tplcmpname="")
+				{
+					global $BITRIX_DIR;
+
+					list($cmpdir, $cmpname) = explode(":", $cmpname);
+					$tplcmpname = trim($tplcmpname);
+
+					$cdir    = "{$BITRIX_DIR}/components/{$cmpdir}/{$cmpname}/templates/.default";
+					$ctpldir = "{$BITRIX_DIR}/templates/{$tplname}/components/{$cmpdir}/{$cmpname}";
+
+					if (is_dir($cdir))
+					{
+						mkd($ctpldir);
+						if (!empty($tplcmpname))
+							$ctpldir .= "/{$tplcmpname}";
+						cp_r($cdir, $ctpldir, true, true);
+						find_included_components_in_dir($tplname, $cdir);
+					}
+				}
+
+				function find_included_components_in_dir($tplname, $dir, $exclude_bitrix=false)
+				{
+					$phps = find_php($dir, $exclude_bitrix);
+
+					foreach ($phps as $file)
+					{
+						find_included_components_in_file($tplname, $file);
+					}
+				}
+
+				function find_included_components_in_file($tplname, $file)
+				{
+					$data = file_get_contents($file);
+
+					if (preg_match_all("#IncludeComponent[^(]*\([^\"']*[\"']([^\"']+)[\"'][^\"']*,[^\"']*[\"']([^\"']+)[\"']#i", $data, $matches))
+					{
+						foreach ($matches[1] as $key => $cmp)
+						{
+							warnc("\nFound", $cmp, $matches[2][$key]);
+							create_tmpcmp($tplname, $cmp, $matches[2][$key]);
+						}
+					}
+				}
+
+				find_included_components_in_file($template, "{$BITRIX_DIR}/templates/{$template}/header.php");
+				find_included_components_in_file($template, "{$BITRIX_DIR}/templates/{$template}/footer.php");
+				find_included_components_in_dir($template, $DOCUMENT_ROOT, true);
 			break;
 		}
 	break;
@@ -1028,6 +1169,192 @@ EOF;
 				else
 					diec("Update products", "Error");
 			break;
+
+			case "tm":
+				$email = getarg();
+
+				if (mail($email, "Test email", "Test mail message"))
+					logc("Sending mail", "{$email} OK");
+				else 
+					diec("Sending mail", "{$email} ERROR");
+			break;
+
+			case "oct":
+				$rootLogin    = getarg();
+				$rootPassword = getarg();
+
+				echo shell_exec("mysqlcheck -u{$rootLogin} -p{$rootPassword} --auto-repair --all-databases");
+				echo shell_exec("mysqlcheck -u{$rootLogin} -p{$rootPassword} --optimize --all-databases");
+			break;
+
+			case "chd":
+				echo shell_exec("fdisk -l 2>/dev/null | grep -i \"disk.*bytes\" | while read STRING; do DEVICE=$(echo ${STRING} | awk '{print $2}' | sed 's/://'); hdparm ${DEVICE}; hdparm -Tt ${DEVICE}; done");
+			break;
+/*
+			case "mysqlvars":
+				$rootLogin    = getarg();
+				$rootPassword = getarg();
+				$host         = getarg("localhost");
+
+				$l = mysql_connect($host, $rootLogin, $rootPassword);
+
+				$rVaribales = mysql_query("SELECT * FROM INFORMATION_SCHEMA.GLOBAL_VARIABLES", $l);
+				$rows = array();
+
+				while ($row = mysql_fetch_assoc($rVaribales))
+				{
+					$rows[$row["VARIABLE_NAME"]] = $row["VARIABLE_VALUE"];
+				}
+
+				echo json_encode($rows);
+			break;
+*/
+			case "cmysqlvars":
+				$rootLogin    = getarg();
+				$rootPassword = getarg();
+				$host         = getarg("localhost");
+
+				$ideal_vars = json_decode('{"MAX_PREPARED_STMT_COUNT":"16382","INNODB_LOG_GROUP_HOME_DIR":".\/","HAVE_CRYPT":"YES","PERFORMANCE_SCHEMA_EVENTS_WAITS_HISTORY_LONG_SIZE":"10000","INNODB_VERSION":"1.1.8","PERFORMANCE_SCHEMA_MAX_COND_INSTANCES":"1000","HAVE_QUERY_CACHE":"YES","OLD_PASSWORDS":"OFF","PERFORMANCE_SCHEMA_MAX_FILE_CLASSES":"50","PERFORMANCE_SCHEMA_MAX_THREAD_INSTANCES":"1000","DELAYED_INSERT_TIMEOUT":"300","PERFORMANCE_SCHEMA_MAX_MUTEX_INSTANCES":"1000000","TIME_FORMAT":"%H:%i:%s","PERFORMANCE_SCHEMA_MAX_RWLOCK_INSTANCES":"1000000","LC_MESSAGES":"en_US","PERFORMANCE_SCHEMA_MAX_RWLOCK_CLASSES":"30","BASEDIR":"\/usr","PERFORMANCE_SCHEMA_MAX_MUTEX_CLASSES":"200","UPDATABLE_VIEWS_WITH_LIMIT":"YES","BACK_LOG":"50","SLOW_LAUNCH_TIME":"2","EVENT_SCHEDULER":"OFF","QUERY_CACHE_LIMIT":"16777216","INIT_SLAVE":"","RELAY_LOG_INDEX":"","KEY_CACHE_AGE_THRESHOLD":"300","SQL_QUOTE_SHOW_CREATE":"ON","PERFORMANCE_SCHEMA":"OFF","CHARACTER_SET_FILESYSTEM":"binary","HAVE_GEOMETRY":"YES","WAIT_TIMEOUT":"28800","LOCK_WAIT_TIMEOUT":"31536000","PERFORMANCE_SCHEMA_MAX_TABLE_HANDLES":"100000","CHARACTER_SETS_DIR":"\/usr\/share\/mysql\/charsets\/","SKIP_NAME_RESOLVE":"OFF","MAX_HEAP_TABLE_SIZE":"33554432","REPORT_HOST":"","CHARACTER_SET_RESULTS":"latin1","MYISAM_SORT_BUFFER_SIZE":"8388608","CHARACTER_SET_CONNECTION":"latin1","INNODB_ROLLBACK_SEGMENTS":"128","OPTIMIZER_SEARCH_DEPTH":"62","LARGE_FILES_SUPPORT":"ON","PID_FILE":"\/var\/run\/mysqld\/mysqld.pid","MAX_JOIN_SIZE":"18446744073709551615","SQL_LOG_BIN":"ON","NET_BUFFER_LENGTH":"16384","FT_QUERY_EXPANSION_LIMIT":"20","SKIP_SHOW_DATABASE":"OFF","FT_MAX_WORD_LEN":"84","GROUP_CONCAT_MAX_LEN":"1024","LARGE_PAGES":"OFF","RANGE_ALLOC_BLOCK_SIZE":"4096","LC_TIME_NAMES":"en_US","INIT_CONNECT":"","MULTI_RANGE_COUNT":"256","INNODB_LOG_FILE_SIZE":"5242880","PERFORMANCE_SCHEMA_EVENTS_WAITS_HISTORY_SIZE":"10","TRANSACTION_PREALLOC_SIZE":"4096","INTERACTIVE_TIMEOUT":"28800","MYISAM_RECOVER_OPTIONS":"BACKUP","AUTOMATIC_SP_PRIVILEGES":"ON","LICENSE":"GPL","DELAYED_INSERT_LIMIT":"100","LOW_PRIORITY_UPDATES":"OFF","COMPLETION_TYPE":"NO_CHAIN","REPORT_PASSWORD":"","BINLOG_DIRECT_NON_TRANSACTIONAL_UPDATES":"OFF","MAX_INSERT_DELAYED_THREADS":"20","MAX_ERROR_COUNT":"64","HAVE_COMPRESS":"YES","AUTO_INCREMENT_OFFSET":"1","TRANSACTION_ALLOC_BLOCK_SIZE":"8192","JOIN_BUFFER_SIZE":"131072","THREAD_CACHE_SIZE":"8","CONNECT_TIMEOUT":"10","INNODB_DOUBLEWRITE":"ON","SQL_LOW_PRIORITY_UPDATES":"OFF","LOWER_CASE_FILE_SYSTEM":"OFF","INIT_FILE":"","DEFAULT_WEEK_FORMAT":"0","LC_MESSAGES_DIR":"\/usr\/share\/mysql\/","LOG_OUTPUT":"FILE","PERFORMANCE_SCHEMA_MAX_THREAD_CLASSES":"50","INNODB_IO_CAPACITY":"200","MAX_CONNECT_ERRORS":"10","INNODB_USE_NATIVE_AIO":"OFF","PROTOCOL_VERSION":"10","HAVE_SYMLINK":"YES","NET_WRITE_TIMEOUT":"60","TIME_ZONE":"SYSTEM","INNODB_TABLE_LOCKS":"ON","LOG_WARNINGS":"1","INNODB_AUTOEXTEND_INCREMENT":"8","DELAYED_QUEUE_SIZE":"1000","MYISAM_DATA_POINTER_SIZE":"6","MAX_LONG_DATA_SIZE":"33554432","INNODB_THREAD_SLEEP_DELAY":"10000","OPEN_FILES_LIMIT":"1024","SQL_AUTO_IS_NULL":"OFF","LOWER_CASE_TABLE_NAMES":"0","SLAVE_TRANSACTION_RETRIES":"10","BINLOG_CACHE_SIZE":"32768","ENGINE_CONDITION_PUSHDOWN":"ON","LOG_QUERIES_NOT_USING_INDEXES":"OFF","SYNC_RELAY_LOG_INFO":"0","NET_RETRY_COUNT":"10","INNODB_REPLICATION_DELAY":"0","FT_STOPWORD_FILE":"(built-in)","QUERY_CACHE_MIN_RES_UNIT":"4096","DELAY_KEY_WRITE":"ON","INNODB_STATS_ON_METADATA":"ON","SKIP_NETWORKING":"OFF","INNODB_ROLLBACK_ON_TIMEOUT":"OFF","LONG_QUERY_TIME":"10.000000","PROFILING_HISTORY_SIZE":"15","BULK_INSERT_BUFFER_SIZE":"8388608","INNODB_CHANGE_BUFFERING":"all","INNODB_BUFFER_POOL_SIZE":"134217728","READ_RND_BUFFER_SIZE":"262144","HAVE_INNODB":"YES","INNODB_FILE_FORMAT":"Antelope","MAX_LENGTH_FOR_SORT_DATA":"1024","BIG_TABLES":"OFF","FLUSH":"OFF","SQL_SELECT_LIMIT":"18446744073709551615","METADATA_LOCKS_CACHE_SIZE":"1024","DATE_FORMAT":"%Y-%m-%d","CHARACTER_SET_SERVER":"latin1","READ_ONLY":"OFF","HOSTNAME":"darktemp-EP43-S3L","INNODB_DATA_FILE_PATH":"ibdata1:10M:autoextend","READ_BUFFER_SIZE":"131072","INNODB_PURGE_THREADS":"0","MAX_SORT_LENGTH":"1024","PROFILING":"OFF","MAX_BINLOG_SIZE":"104857600","INNODB_STRICT_MODE":"OFF","COLLATION_SERVER":"latin1_swedish_ci","KEY_CACHE_DIVISION_LIMIT":"100","FLUSH_TIME":"0","GENERAL_LOG_FILE":"\/var\/lib\/mysql\/darktemp-EP43-S3L.log","QUERY_PREALLOC_SIZE":"8192","PERFORMANCE_SCHEMA_MAX_COND_CLASSES":"80","SLOW_QUERY_LOG":"OFF","AUTO_INCREMENT_INCREMENT":"1","MAX_SEEKS_FOR_KEY":"18446744073709551615","TMPDIR":"\/tmp","SQL_BIG_SELECTS":"ON","EXPIRE_LOGS_DAYS":"10","BINLOG_STMT_CACHE_SIZE":"32768","HAVE_PARTITIONING":"YES","QUERY_CACHE_SIZE":"33554432","FOREIGN_KEY_CHECKS":"ON","MAX_USER_CONNECTIONS":"0","RELAY_LOG_INFO_FILE":"relay-log.info","BINLOG_FORMAT":"STATEMENT","INNODB_AUTOINC_LOCK_MODE":"1","LOG":"OFF","INNODB_COMMIT_CONCURRENCY":"0","LOG_BIN":"OFF","INNODB_MIRRORED_LOG_GROUPS":"1","QUERY_ALLOC_BLOCK_SIZE":"8192","INNODB_PURGE_BATCH_SIZE":"20","MIN_EXAMINED_ROW_LIMIT":"0","VERSION":"5.5.24-0ubuntu0.12.04.1","MAX_BINLOG_CACHE_SIZE":"18446744073709547520","INNODB_SUPPORT_XA":"ON","SSL_CAPATH":"","INNODB_SYNC_SPIN_LOOPS":"30","VERSION_COMMENT":"(Ubuntu)","COLLATION_CONNECTION":"latin1_swedish_ci","SYNC_RELAY_LOG":"0","INNODB_ADAPTIVE_FLUSHING":"ON","THREAD_STACK":"196608","INNODB_ADAPTIVE_HASH_INDEX":"ON","SYSTEM_TIME_ZONE":"MSK","QUERY_CACHE_WLOCK_INVALIDATE":"OFF","OPTIMIZER_PRUNE_LEVEL":"1","DIV_PRECISION_INCREMENT":"4","MAX_WRITE_LOCK_COUNT":"18446744073709551615","STORED_PROGRAM_CACHE":"256","TIMED_MUTEXES":"OFF","INNODB_DATA_HOME_DIR":"","INNODB_READ_IO_THREADS":"4","SERVER_ID":"0","INNODB_WRITE_IO_THREADS":"4","CHARACTER_SET_DATABASE":"latin1","INNODB_BUFFER_POOL_INSTANCES":"1","INNODB_FORCE_RECOVERY":"0","VERSION_COMPILE_MACHINE":"x86_64","INNODB_LOG_FILES_IN_GROUP":"2","TABLE_DEFINITION_CACHE":"400","REPORT_USER":"","HAVE_DYNAMIC_LOADING":"YES","NET_READ_TIMEOUT":"30","SYNC_BINLOG":"0","TMP_TABLE_SIZE":"33554432","RELAY_LOG_SPACE_LIMIT":"0","THREAD_HANDLING":"one-thread-per-connection","INNODB_OPEN_FILES":"300","QUERY_CACHE_TYPE":"ON","INNODB_FILE_FORMAT_CHECK":"ON","SQL_BIG_TABLES":"OFF","INNODB_READ_AHEAD_THRESHOLD":"56","TABLE_OPEN_CACHE":"400","CHARACTER_SET_SYSTEM":"utf8","MAX_SP_RECURSION_DEPTH":"0","KEY_BUFFER_SIZE":"33554432","REPORT_PORT":"3306","HAVE_NDBCLUSTER":"NO","SSL_CIPHER":"","FT_BOOLEAN_SYNTAX":"+ -><()~*:\"\"&|","SLAVE_EXEC_MODE":"STRICT","INNODB_STATS_METHOD":"nulls_equal","NEW":"OFF","INNODB_FAST_SHUTDOWN":"1","SQL_MODE":"","SSL_CA":"","SQL_SAFE_UPDATES":"OFF","INNODB_THREAD_CONCURRENCY":"0","LARGE_PAGE_SIZE":"0","SLAVE_NET_TIMEOUT":"3600","SECURE_FILE_PRIV":"","INNODB_STATS_SAMPLE_PAGES":"8","KEEP_FILES_ON_CREATE":"OFF","LOCAL_INFILE":"ON","SQL_BUFFER_RESULT":"OFF","HAVE_RTREE_KEYS":"YES","KEY_CACHE_BLOCK_SIZE":"1024","HAVE_PROFILING":"YES","HAVE_CSV":"YES","OLD_ALTER_TABLE":"OFF","OLD":"OFF","MYISAM_MMAP_SIZE":"18446744073709551615","PRELOAD_BUFFER_SIZE":"32768","PERFORMANCE_SCHEMA_MAX_FILE_HANDLES":"32768","SLAVE_COMPRESSED_PROTOCOL":"OFF","RELAY_LOG_RECOVERY":"OFF","TX_ISOLATION":"REPEATABLE-READ","MAX_DELAYED_THREADS":"20","LOG_ERROR":"","DATETIME_FORMAT":"%Y-%m-%d %H:%i:%s","GENERAL_LOG":"OFF","INNODB_FLUSH_LOG_AT_TRX_COMMIT":"1","SORT_BUFFER_SIZE":"2097152","MAX_RELAY_LOG_SIZE":"0","IGNORE_BUILTIN_INNODB":"OFF","INNODB_RANDOM_READ_AHEAD":"OFF","MAX_CONNECTIONS":"151","DATADIR":"\/var\/lib\/mysql\/","FT_MIN_WORD_LEN":"4","PORT":"3306","VERSION_COMPILE_OS":"debian-linux-gnu","MYISAM_REPAIR_THREADS":"1","MYISAM_USE_MMAP":"OFF","LOG_BIN_TRUST_FUNCTION_CREATORS":"OFF","SQL_WARNINGS":"OFF","INNODB_FORCE_LOAD_CORRUPTED":"OFF","RELAY_LOG":"","HAVE_OPENSSL":"DISABLED","PLUGIN_DIR":"\/usr\/lib\/mysql\/plugin\/","MAX_BINLOG_STMT_CACHE_SIZE":"18446744073709547520","LOG_SLOW_QUERIES":"OFF","PERFORMANCE_SCHEMA_MAX_FILE_INSTANCES":"10000","MAX_TMP_TABLES":"32","INNODB_SPIN_WAIT_DELAY":"6","SQL_LOG_OFF":"OFF","INNODB_FILE_FORMAT_MAX":"Antelope","SLOW_QUERY_LOG_FILE":"\/var\/lib\/mysql\/darktemp-EP43-S3L-slow.log","DEFAULT_STORAGE_ENGINE":"InnoDB","SQL_SLAVE_SKIP_COUNTER":"0","INNODB_LOCK_WAIT_TIMEOUT":"50","SECURE_AUTH":"OFF","INNODB_OLD_BLOCKS_TIME":"0","SYNC_FRM":"ON","RPL_RECOVERY_RANK":"0","MYISAM_STATS_METHOD":"nulls_unequal","MAX_ALLOWED_PACKET":"33554432","AUTOCOMMIT":"ON","OPTIMIZER_SWITCH":"index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on,engine_condition_pushdown=on","INNODB_FLUSH_METHOD":"","LOCKED_IN_MEMORY":"OFF","CHARACTER_SET_CLIENT":"latin1","INNODB_CHECKSUMS":"ON","STORAGE_ENGINE":"InnoDB","INNODB_LOCKS_UNSAFE_FOR_BINLOG":"OFF","HAVE_SSL":"DISABLED","SSL_KEY":"","SQL_MAX_JOIN_SIZE":"18446744073709551615","INNODB_CONCURRENCY_TICKETS":"500","CONCURRENT_INSERT":"AUTO","SLAVE_SKIP_ERRORS":"OFF","LOG_SLAVE_UPDATES":"OFF","SYNC_MASTER_INFO":"0","RELAY_LOG_PURGE":"ON","INNODB_FILE_PER_TABLE":"OFF","COLLATION_DATABASE":"latin1_swedish_ci","SSL_CERT":"","INNODB_LARGE_PREFIX":"OFF","SOCKET":"\/var\/run\/mysqld\/mysqld.sock","INNODB_LOG_BUFFER_SIZE":"8388608","SKIP_EXTERNAL_LOCKING":"ON","INNODB_MAX_PURGE_LAG":"0","SLAVE_LOAD_TMPDIR":"\/tmp","MYISAM_MAX_SORT_FILE_SIZE":"9223372036853727232","INNODB_ADDITIONAL_MEM_POOL_SIZE":"8388608","SLAVE_TYPE_CONVERSIONS":"","INNODB_USE_SYS_MALLOC":"ON","SQL_NOTES":"ON","INNODB_MAX_DIRTY_PAGES_PCT":"75","PERFORMANCE_SCHEMA_MAX_TABLE_INSTANCES":"50000","THREAD_CONCURRENCY":"10","UNIQUE_CHECKS":"ON","INNODB_OLD_BLOCKS_PCT":"37"}', true);
+
+				$l = mysql_connect($host, $rootLogin, $rootPassword);
+
+				$rVaribales = mysql_query("SELECT * FROM INFORMATION_SCHEMA.GLOBAL_VARIABLES", $l);
+				$rows = array();
+
+				printf("%-40s|%-40s|%-40s\n", "Name", "Default value", "Current value");
+				echo str_repeat("-", 122)."\n";
+
+				while ($row = mysql_fetch_assoc($rVaribales))
+				{
+					if (@$ideal_vars[$row["VARIABLE_NAME"]] != $row["VARIABLE_VALUE"])
+					{
+						printf("%-40s|%-40s|%-40s\n", $row["VARIABLE_NAME"], @$ideal_vars[$row["VARIABLE_NAME"]], $row["VARIABLE_VALUE"]);
+					}
+				}
+			break;
+
+			case "bmysql":
+				$rootLogin    = getarg();
+				$rootPassword = getarg();
+				$host         = getarg("localhost");
+				$iters        = getarg(10000);
+
+				$stat = array();
+
+				$l = mysql_connect($host, $rootLogin, $rootPassword);
+
+				$dbName = "test_".date("m_d_y");
+				$tableTypes = array("MYISAM", "INNODB", "MEMORY");
+
+				mysql_query("CREATE DATABASE `$dbName`;", $l);
+				logc("Create database", "$dbName");
+
+				foreach ($tableTypes as $tableType)
+				{
+					$tableName = "TEST_".$tableType;
+					mysql_query("CREATE TABLE `$dbName`.`$tableName` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY ,`testcolumn` VARCHAR( 255 ) NOT NULL) ENGINE = $tableType", $l);
+
+					$rTable = mysql_query("SHOW TABLE STATUS FROM $dbName WHERE Name = '$tableName'", $l);
+					if (mysql_fetch_assoc($rTable))
+					{
+						logc("Create table", "$tableName");
+
+						$t1 = timestamp();
+						logc("INSERT", "$iters items");
+						for ($i = 0 ; $i < $iters; $i++)
+						{
+							mysql_query("INSERT INTO `$dbName`.`$tableName` (`id`, `testcolumn`) VALUES (NULL, 'teststuff')", $l);
+						}
+						$t2 = timestamp();
+						$dt = round($t2-$t1, 5);
+						$ips = round($iters/$dt);
+						$stat[] = array("method" => "INSERT", "engine" => $tableType, "time" => $dt, "ips" => $ips);
+
+						$t1 = timestamp();
+						logc("SELECT", "$iters items");
+						for ($i = 0 ; $i < $iters; $i++)
+						{
+							$rSelect = mysql_query("SELECT * from `$dbName`.`$tableName` WHERE ID = ".($i+1), $l);
+							while (mysql_fetch_assoc($rSelect)) { }
+						}
+						$t2 = timestamp();
+						$dt = round($t2-$t1, 5);
+						$ips = round($iters/$dt);
+						$stat[] = array("method" => "SELECT", "engine" => $tableType, "time" => $dt, "ips" => $ips);
+
+						$t1 = timestamp();
+						logc("UPDATE", "$iters items");
+						for ($i = 0 ; $i < $iters; $i++)
+						{
+							mysql_query("UPDATE `$dbName`.`$tableName` SET testcolumn = 'updated stuff' WHERE ID = ".($i+1), $l);							
+						}
+						$t2 = timestamp();
+						$dt = round($t2-$t1, 5);
+						$ips = round($iters/$dt);
+						$stat[] = array("method" => "UPDATE", "engine" => $tableType, "time" => $dt, "ips" => $ips);
+
+						$t1 = timestamp();
+						logc("DELETE", "$iters items");
+						for ($i = 0 ; $i < $iters; $i++)
+						{
+							mysql_query("DELETE `$dbName`.`$tableName` WHERE ID = ".($i+1), $l);							
+						}
+						$t2 = timestamp();
+						$dt = round($t2-$t1, 5);
+						$ips = round($iters/$dt);
+						$stat[] = array("method" => "DELETE", "engine" => $tableType, "time" => $dt, "ips" => $ips);
+					}
+
+					mysql_query("DROP TABLE `$dbName`.`$tableName`", $l);
+					logc("Drop table", "$tableName");
+				}
+				mysql_query("DROP DATABASE `$dbName`.`$tableName`", $l);
+				logc("Drop database", "$dbName");
+
+				printf("%-20s|%-20s|%-20s|%-20s\n", "Engine", "Method", "Time (s)", "IPS (i/s)");
+				echo str_repeat("-", 83)."\n";
+				foreach ($stat as $line)
+				{
+					printf("%-20s|%-20s|%-20s|%-20s\n", $line["engine"], $line["method"], $line["time"], $line["ips"]);
+				}
+			break;
+		}
+	break;
+
+	case "mysql":
+		$param = getarg();
+
+		switch ($param)
+		{
+			case "drop":
+				$param = getarg();
+
+				switch ($param)
+				{
+					case "table":
+						$name = getarg();
+					break;
+
+					case "database":
+						$name = getarg();
+					break;
+				}					
+			break;
+
+			case "truncate":
+				$param = getarg();
+
+				switch ($param)
+				{
+					case "table":
+						$name = getarg();
+					break;
+
+					case "database":
+						$name = getarg();
+					break;
+				}					
+			break;
 		}
 	break;
 
@@ -1066,49 +1393,66 @@ EOF;
 		shell_exec("tar cpzfv {$DOCUMENT_ROOT}/{$arcfile} {$DOCUMENT_ROOT}/*");
 		unlink($dbfile);
 
-		function mail_attachment($filename, $mailto, $from_mail, $from_name, $replyto, $subject, $message) 
+		function multi_attach_mail($to, $files, $sendermail)
 		{
-			$file_size = filesize($filename);
-			$content   = file_get_contents($filename);
-			$content   = chunk_split(base64_encode($content));
-			$uid       = md5(uniqid(time()));
-			$name      = basename($filename);
-			$header    = "From: ".$from_name." <".$from_mail.">\r\n";
-			$header    .= "Reply-To: ".$replyto."\r\n";
-			$header    .= "MIME-Version: 1.0\r\n";
-			$header    .= "Content-Type: multipart/mixed; boundary=\"".$uid."\"\r\n\r\n";
-			$header    .= "This is a multi-part message in MIME format.\r\n";
-			$header    .= "--".$uid."\r\n";
-			$header    .= "Content-type:text/plain; charset=iso-8859-1\r\n";
-			$header    .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
-			$header    .= $message."\r\n\r\n";
-			$header    .= "--".$uid."\r\n";
-			$header    .= "Content-Type: application/octet-stream; name=\"".$filename."\"\r\n";
-			$header    .= "Content-Transfer-Encoding: base64\r\n";
-			$header    .= "Content-Disposition: attachment; filename=\"".$filename."\"\r\n\r\n";
-			$header    .= $content."\r\n\r\n";
-			$header    .= "--".$uid."--";
+			$files         = (array) $files;
+			$from          = "Files attach <".$sendermail.">"; 
+			$subject       = date("d.M H:i")." F=".count($files); 
+			$message       = date("Y.m.d H:i:s")."\n".count($files)." attachments";
+			$headers       = "From: $from";
+			
+			$semi_rand     = md5(time()); 
+			$mime_boundary = "==Multipart_Boundary_x{$semi_rand}x"; 
+			
+			$headers       .= "\nMIME-Version: 1.0\n" . "Content-Type: multipart/mixed;\n" . " boundary=\"{$mime_boundary}\""; 
+			
+			$message       = "--{$mime_boundary}\n" . "Content-Type: text/plain; charset=\"iso-8859-1\"\n" .
+			"Content-Transfer-Encoding: 7bit\n\n" . $message . "\n\n"; 
 
-			if (mail($mailto, $subject, "", $header)) 
-				logc("Sending mail", "$mailto OK");
-			else 
-				diec("Sending mail", "$mailto ERROR");
-		}		
+			for($i=0;$i<count($files);$i++)
+			{
+				if(is_file($files[$i]))
+				{
+					$message .= "--{$mime_boundary}\n";
+					$fp      =    @fopen($files[$i],"rb");
+					$data    =    @fread($fp,filesize($files[$i]));
+					$data    = chunk_split(base64_encode($data));
+					$message .= "Content-Type: application/octet-stream; name=\"".basename($files[$i])."\"\n" . 
+					"Content-Description: ".basename($files[$i])."\n" .
+					"Content-Disposition: attachment;\n" . " filename=\"".basename($files[$i])."\"; size=".filesize($files[$i]).";\n" . 
+					"Content-Transfer-Encoding: base64\n\n" . $data . "\n\n";
+					@fclose($fp);
+				}
+			}
+
+			$message .= "--{$mime_boundary}--";
+			//$returnpath = "-f" . $sendermail;
+			return @mail($to, $subject, $message, $headers); 
+		}
 
 		logc("Packed into", $arcfile);
 
 		if ($options["email"])
 		{
+			if (multi_attach_mail($options["email"], "{$DOCUMENT_ROOT}/{$arcfile}", "robot@{$_SERVER['SERVER_NAME']}"))
+				logc("Sending mail", "{$to} OK");
+			else
+				diec("Sending mail", "{$to} ERROR");
+
+			/*
 			mail_attachment
 			(
 				"{$DOCUMENT_ROOT}/{$arcfile}",
-				"Backup robot",
+				"robot@{$_SERVER['SERVER_NAME']}",
 				$options["email"],
-				"",
-				"Backup - {$_SERVER['SERVER_ADDR']} - {$_SERVER['SERVER_NAME']}",
-				""
+				"Backup - {$_SERVER['SERVER_ADDR']} - {$_SERVER['SERVER_NAME']}"
 			);
+			*/
 		}
+	break;
+
+	case "restore":
+
 	break;
 
 	default:

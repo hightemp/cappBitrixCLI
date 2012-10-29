@@ -6,26 +6,59 @@ bitrix-cli
 
 	Available commands:
 
-	c[reate]
-		page name [alias] [path] [components..]       # Create a bitrix php page
-		tpl name [alias] [description] [components..] # Create a template using components
-		ibl name iblock_type [code]                   # Create a iblock
-		cmp name [alias] [description]	              # Create a component
-		cmpin template_name name                      # Create a component's template copy for the site template
-		mod name [alias] [description]	              # Create a module
+		c, [create]
+			page NAME [ALIAS PATH COMPONENTS..]           # Create a bitrix php page
+			tpl TEMPLATE [ALIAS DESCRIPTION COMPONENTS..] # Create a template using components
+			ibl IBLOCK IBLOCK_TYPE [CODE]                 # Create a iblock
+			cmp COMPONENT [ALIAS DESCRIPTION]	          # Create a component
+			tplcmp TEMPLATE COMPONENT                     # Create a component's template copy for the site template
+			mdl MODULE [ALIAS DESCRIPTION]	              # Create a module
+			menu NAME IBLOCK
 
-	r[emove]
-		page name [path]
-		tpl name
-		ibl id [name] [code]
-		cmp name
-		cmpin template_name name
-		mod name
+		r, [remove]
+			page NAME [PATH]
+			tpl TEMPLATE
+			ibl ID [NAME CODE]
+			cmp COMPONENT
+			cmpin TEMPLATE COMPONENT
+			mdl MODULE
 
-	cl[ear]
-		iblock id [name] [code]
+		g, [generate]
+			codes IBLOCK_ID [NAME CODE]
+			tplcmp TEMPLATE
 
-	i[mport]
-		products
-			magento hostname apiuser apikey category_id iblock_id
-			xls filename iblock_id
+		cl, [clear]
+			iblock ID [NAME CODE]
+
+		l, [list]
+			cmp
+			mdl
+			tpl
+			tplcmp TEMPLATE
+
+		m, [module]
+			install MODULES
+			unintall MODULES
+
+		i, [import]
+			products
+				magento HOSTNAME APIUSER APIKEY CATEGORY_ID IBLOCK_ID
+				xls FILENAME IBLOCK_ID
+
+		t, [tools]
+			pqt                              # Products quantity trace
+			tm                               # Test mail
+			oct LOGIN PASSWORD               # Optimize and check all tables
+			bmysql LOGIN PASSWORD HOST ITERS # Make a benchmark for mysql
+
+		mysql
+			drop table TABLE
+			drop database DATABASE
+			truncate table TABLE
+			truncate database DATABASE
+
+		w, [watcher]
+			start TEMPLATE
+			stop TEMPLATE
+
+		backup [EMAIL FTP_URL]
